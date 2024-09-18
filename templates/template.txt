@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ .Title }}</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    th {
+      background-color: #f2f2f2;
+    }
+
+    tr:hover {
+      background-color: #f5f5f5;
+    }
+
+    /* Pagination Button Styles */
+    .paginate_button {
+      padding: 5px 10px;
+      background-color: #f2f2f2;
+      border: 1px solid #ddd;
+      cursor: pointer;
+      margin: 2px;
+      text-align: center;
+      display: inline-block;
+      min-width: 30px;
+    }
+
+    .paginate_button:hover {
+      background-color: #d9d9d9;
+    }
+
+    .paginate_button.active {
+      background-color: #4CAF50;
+      color: white;
+    }
+
+    .dataTables_wrapper .dataTables_paginate {
+      margin-top: 15px;
+    }
+
+    /* Pagination Controls */
+    .pagination-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .pagination-ellipsis {
+      padding: 5px 10px;
+      cursor: default;
+    }
+
+    /* Styling Search and Export Buttons */
+    .search-wrapper {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    input[type="search"] {
+      padding: 10px;
+      border: 1px solid #ddd;
+      width: 250px;
+      border-radius: 5px;
+    }
+
+    .dt-buttons {
+      margin-bottom: 10px;
+    }
+
+    .dt-buttons button {
+      padding: 8px 15px;
+      margin-right: 5px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 5px;
+    }
+
+    .dt-buttons button:hover {
+      background-color: #45a049;
+    }
+
+    /* Infinite Scroll Styles */
+    #loadingIndicator {
+      text-align: center;
+      margin: 10px;
+      font-size: 14px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>{{ .Caption }}</h2>
+
+  <div class="search-wrapper">
+    <input type="search" id="searchInput" placeholder="Search...">
+    <div class="dt-buttons">
+      <button id="exportCSV">Export CSV</button>
+      <button id="exportTSV">Export TSV</button>
+      <button id="exportJSON">Export JSON</button>
+    </div>
+  </div>
+
+  <table id="dataTable" class="display nowrap">
+    <thead>
+      <tr>
+        {{ range .Headers }}
+        <th>{{ . }}</th>
+        {{ end }}
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Rows }}
+      <tr>
+        {{ range . }}
+        <td>{{ . }}</td>
+        {{ end }}
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+
+  <div id="loadingIndicator" style="display: none;">Loading more data...</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const dataTable = document.getElementById('dataTable');
+    const searchInput = document.getElementById('searchInput');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    let tableData = [];
+    let currentPage = 1;
+    const rowsPerPage = {{ if gt .DisplayLength 0 }}{{ .DisplayLength }}{{ else }}10{{ end }};
+    const pagination = {{ if .Pagination }}true{{ else }}false{{ end }};
+    let filteredData = [];
+    let isFetching = false;
+
+    // Extract table data
+    function extractTableData() {
+      const rows = dataTable.querySelectorAll('tbody tr');
+      rows.forEach(row => {
+        let rowData = [];
+        row.querySelectorAll('td').forEach(cell => {
+          rowData.push(cell.textContent.trim());
+        });
+        tableData.push(rowData);
+      });
+      filteredData = [...tableData];
+    }
+
+    // Render table rows based on filtered data
+    function renderTable(page, append = false) {
+      const start = (page - 1) * rowsPerPage;
+      const end = pagination ? start + rowsPerPage : filteredData.length; // Adjust end for pagination
+      const tbody = dataTable.querySelector('tbody');
+      if (!append) {
+        tbody.innerHTML = ''; // Clear table body before rendering
+      }
+
+      filteredData.slice(start, end).forEach(rowData => {
+        const row = document.createElement('tr');
+        rowData.forEach(cellData => {
+          const cell = document.createElement('td');
+          cell.textContent = cellData;
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+
+      currentPage = page;
+      if (pagination) {
+        renderPagination();
+      }
+    }
+
+    // Create pagination buttons
+    function renderPagination() {
+      const totalRows = filteredData.length;
+      const totalPages = Math.ceil(totalRows / rowsPerPage);
+      const paginationContainer = document.createElement('div');
+      paginationContainer.classList.add('pagination-controls');
+
+      const previousButton = createPaginationButton('Previous', currentPage > 1, () => renderTable(currentPage - 1));
+      paginationContainer.appendChild(previousButton);
+
+      if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) {
+          const button = createPaginationButton(i, i !== currentPage, () => renderTable(i));
+          paginationContainer.appendChild(button);
+        }
+      } else {
+        if (currentPage > 3) {
+          paginationContainer.appendChild(createPaginationButton(1, true, () => renderTable(1)));
+          paginationContainer.appendChild(createEllipsis());
+        }
+        
+        const pageRange = calculatePageRange(currentPage, totalPages);
+        for (let i = pageRange.start; i <= pageRange.end; i++) {
+          const button = createPaginationButton(i, i !== currentPage, () => renderTable(i));
+          paginationContainer.appendChild(button);
+        }
+
+        if (currentPage < totalPages - 2) {
+          paginationContainer.appendChild(createEllipsis());
+          paginationContainer.appendChild(createPaginationButton(totalPages, true, () => renderTable(totalPages)));
+        }
+      }
+
+      const nextButton = createPaginationButton('Next', currentPage < totalPages, () => renderTable(currentPage + 1));
+      paginationContainer.appendChild(nextButton);
+
+      const oldPagination = document.querySelector('.pagination-controls');
+      if (oldPagination) oldPagination.remove();
+      dataTable.parentNode.appendChild(paginationContainer);
+    }
+
+    // Helper to create a pagination button
+    function createPaginationButton(text, isEnabled, onClick) {
+      const button = document.createElement('button');
+      button.classList.add('paginate_button');
+      if (!isEnabled) {
+        button.disabled = true;
+      } else {
+        button.addEventListener('click', onClick);
+      }
+      button.textContent = text;
+      return button;
+    }
+
+    // Helper to create an ellipsis for pagination
+    function createEllipsis() {
+      const ellipsis = document.createElement('span');
+      ellipsis.classList.add('pagination-ellipsis');
+      ellipsis.textContent = '...';
+      return ellipsis;
+    }
+
+    // Helper to calculate page range for large paginations
+    function calculatePageRange(currentPage, totalPages) {
+      let start = Math.max(1, currentPage - 2);
+      let end = Math.min(totalPages, currentPage + 2);
+      return { start, end };
+    }
+
+    // Search function with pagination reset
+    function searchTable(query) {
+      query = query.toLowerCase();
+      filteredData = tableData.filter(row => row.some(cell => cell.toLowerCase().includes(query)));
+      renderTable(1); // Reset pagination or infinite scroll on search
+    }
+
+    // Infinite Scroll Handler
+    function infiniteScrollHandler() {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 50 && !isFetching) {
+        isFetching = true;
+        currentPage++;
+        renderTable(currentPage, true);
+        isFetching = false;
+      }
+    }
+
+    // Custom export function
+    function exportTable(format) {
+      let data = '';
+      if (format === 'csv') {
+        filteredData.forEach(row => {
+          data += row.join(',') + '\n'; // CSV uses comma separator
+      });
+      downloadFile('data.csv', data);
+      } else if (format === 'tsv') {
+        filteredData.forEach(row => {
+        data += row.join('\t') + '\n'; // TSV uses tab separator
+      });
+      downloadFile('data.tsv', data);
+  } else if (format === 'json') {
+    data = JSON.stringify(filteredData);
+    downloadFile('data.json', data);
+  }
+}
+
+
+    // Download helper function
+    function downloadFile(filename, content) {
+      const blob = new Blob([content], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+    }
+
+    // Attach event listeners
+    searchInput.addEventListener('input', e => searchTable(e.target.value));
+    document.getElementById('exportCSV').addEventListener('click', () => exportTable('csv'));
+    document.getElementById('exportTSV').addEventListener('click', () => exportTable('tsv'));
+    document.getElementById('exportJSON').addEventListener('click', () => exportTable('json'));
+
+
+    // Infinite scroll event listener (only if pagination is disabled)
+    if (!pagination) {
+      window.addEventListener('scroll', infiniteScrollHandler);
+    }
+
+    // Initialize table data and render
+    extractTableData();
+    renderTable(currentPage);
+  });
+</script>
+
+</body>
+</html>
